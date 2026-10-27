@@ -1,0 +1,5 @@
+[
+  {"id":"demo-1","thread":"demo-thread","author":"Alice","board":"maintenance-bay.8","title":"虚构样本：Engine overhaul","body":"这是基线样本，不是真实论坛帖子。","tags":[],"url":"https://www.pilotsofamerica.com/community/"},
+  {"id":"demo-2","thread":"demo-thread","author":"Alice","board":"maintenance-bay.8","title":"虚构样本：Engine overhaul","body":"这是新增样本：讨论了报价包含的零件范围与工期。仅用于验证通知流程。","tags":[],"url":"https://www.pilotsofamerica.com/community/"},
+  {"id":"demo-3","thread":"demo-thread","author":"Bob","board":"maintenance-bay.8","title":"虚构样本：Engine overhaul","body":"其他作者的回复，应被 Alice 作者规则排除。","tags":[],"url":"https://www.pilotsofamerica.com/community/"}
+]

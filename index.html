@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>论坛雷达 · 本地版</title>
+<style>
+:root{font:15px/1.65 system-ui,sans-serif;color:#1d302b;background:#f4f5ef}*{box-sizing:border-box}body{margin:0}header{background:#173e34;color:#fff;padding:30px max(24px,calc((100vw - 1140px)/2))}header small{color:#bad3c0;letter-spacing:2px}h1{font-size:34px;margin:5px 0}h2{font-size:21px;margin:0 0 16px}h3{margin:0}main{max-width:1190px;margin:24px auto;padding:0 24px}.top{display:flex;justify-content:space-between;align-items:center;gap:15px}nav{display:flex;gap:8px;margin:22px 0}button{background:#28634b;color:white;border:0;border-radius:8px;padding:10px 16px;cursor:pointer;font:inherit}button.alt{background:#e7ece5;color:#244333}button.danger{color:#a13c32;background:#f8e7e2}button:disabled{opacity:.5;cursor:wait}.panel,.card{background:white;border:1px solid #dde3d8;border-radius:14px;padding:22px;margin:14px 0;box-shadow:0 3px 12px #263c2805}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}label{display:block;font-size:13px;color:#4c6255;margin:8px 0}input,select,textarea{display:block;width:100%;padding:10px;border:1px solid #cbd5c8;border-radius:7px;background:#fff;font:inherit;color:#213b30}input[type=checkbox]{width:auto;display:inline;margin-right:8px}.wide{grid-column:1/-1}.hint,.meta{font-size:13px;color:#687b6c}.notice{padding:12px 16px;border-radius:9px;background:#e9eedc;color:#485536;margin:16px 0}.badge{font-size:12px;background:#eef3eb;border-radius:20px;padding:4px 10px;color:#536845}.actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:14px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.7 system-ui;background:#f6f8f2;border-radius:8px;padding:15px}#toast{position:fixed;bottom:24px;right:24px;max-width:80vw;background:#173e34;color:white;padding:14px 22px;border-radius:10px;display:none}.hidden{display:none!important}a{color:#28634b}summary{cursor:pointer}hr{border:0;border-top:1px solid #e6eadf;margin:24px 0}@media(max-width:680px){.grid{grid-template-columns:1fr}.top{align-items:flex-start;flex-direction:column}h1{font-size:28px}nav{flex-wrap:wrap}}
+</style>
+<header><small>FORUM RADAR / LOCAL FIRST</small><h1>只蹲守，你选中的讨论。</h1><div>指定用户 · 指定话题 · 指定版块 · 指定标签</div></header>
+<main><div class="top"><div><strong id="metrics">读取本地状态…</strong><div class="hint">默认无付费服务，AI 关闭。没有关注项时不访问论坛。</div></div><button onclick="digest()">生成本次汇总</button></div>
+<div class="notice">v0.1 本地验证版：账号与线上权限尚未接通。支持手动导入验证完整流程；自动适配器均标记覆盖缺口。iMessage 需要在 Mac 配置快捷指令后实测。</div>
+<nav><button onclick="show('watch')">我的蹲守</button><button class="alt" onclick="show('create')">＋ 添加关注</button><button class="alt" onclick="show('messages')">摘要与通知</button><button class="alt" onclick="show('settings')">设置</button></nav>
+<section id="watch"><div id="watches"></div></section>
+<section id="create" class="hidden panel"><h2>从一个明确的选择开始</h2>
+<form id="watchForm"><div class="grid">
+<label>关注名称<input name="name" required placeholder="例如：某位机主在维修版的回复"></label>
+<label>论坛<select name="source"><option value="poa">Pilots of America</option><option value="reddit">Reddit</option><option value="beechtalk">BeechTalk</option></select></label>
+<label>选择类型<select name="kind"><option value="thread">具体帖子 / 讨论</option><option value="user">具体用户的发言与回复</option><option value="board">具体版块</option><option value="tag">版块内的标签 / Reddit flair</option></select></label>
+<label>目标<input name="target" required placeholder="帖子 URL / Reddit 帖子 ID / 用户名 / 版块标识 / 标签"></label>
+<label>再限定版块（标签必填）<input name="board" placeholder="Reddit 填 subreddit；PoA 填 maintenance-bay.8 等"></label>
+<label>再限定作者（逗号分隔）<input name="users" placeholder="精确用户名；多位作者之间为“或”"></label>
+<label>关键词（任一命中）<input name="keywords" placeholder="overhaul, annual, A36"></label>
+<label>排除词（任一命中即排除）<input name="exclude" placeholder="simulator"></label>
+<label>再限定标签（任一命中）<input name="tags" placeholder="标签精确匹配"></label>
+<label>数据接入<select name="transport"><option value="import">手动 JSON 导入（默认）</option><option value="rss">已验证的站内 RSS</option><option value="xenforo">PoA 指定帖子单页（实验）</option></select></label>
+<label class="wide">RSS 地址（仅 RSS 模式使用）<input name="feed_url" placeholder="请填写亲自验证可用的论坛 RSS URL"></label>
+<label>检查间隔 / 分钟<input type="number" name="interval" value="60" min="30" max="1440"></label>
+<label>每天最多纳入摘要的条目数<input type="number" name="daily_limit" value="10" min="1" max="50"></label>
+<label>到期日期（留空表示手动停止）<input name="expires" type="date"></label>
+<div class="hint">第一轮只建立基线；暂停后恢复也重新建立基线，避免补发堆积。停止会清除待通知项，需新建才能重开。</div>
+<label class="wide"><input type="checkbox" name="access_allowed">我已确认所选访问方式获准；Reddit 已收到 API 批准</label>
+<label class="wide"><input type="checkbox" name="content_allowed">我已确认可在本地保存和处理这些正文；否则只保留链接级事件</label>
+<label class="wide"><input type="checkbox" name="ai_allowed">允许将此关注的正文交给设置中指定的 AI 服务（仍需开启全局 AI）</label>
+</div><p class="hint">所有条件之间为“且”。不会自动扩展到其他版块、其他用户或相关话题。Reddit 自动使用官方 API；令牌在 Mac 环境变量中配置。</p><button>创建并保持暂停</button></form></section>
+<section id="messages" class="hidden"><div class="panel"><h2>摘要与通知</h2><p class="hint">预览不会发消息。发送仅调用你在 Mac 上创建的固定收件人快捷指令；发送结果不明确时不会自动重试。</p></div><div id="outbox"></div></section>
+<section id="settings" class="hidden panel"><h2>本地运行设置</h2><form id="settingsForm"><div class="grid">
+<label>时区<input name="timezone" value="Asia/Seoul" required></label><label>定时摘要（逗号分隔）<input name="digest_times" value="09:00,19:00" required></label>
+<label>通知方式<select name="delivery"><option value="preview">只生成本地预览（默认）</option><option value="imessage">iMessage（Mac 实测后再开启）</option></select></label><label>固定收件人快捷指令名称<input name="shortcut" value="ForumRadarSend"></label>
+<label>每批最多条目<input name="max_items" type="number" min="1" max="20" value="8"></label><label>每天论坛请求上限（UTC 重置）<input name="daily_requests" type="number" min="1" max="1000" value="200"></label>
+<label>内容保留天数<input name="retention_days" type="number" min="1" max="30" value="7"></label>
+<label><input name="enabled" type="checkbox">启用可选 AI 摘要</label>
+<label class="wide">OpenAI 兼容 API Base URL<input name="base_url" placeholder="https://你的服务商/v1 或 http://127.0.0.1:11434/v1"></label>
+<label>模型名称<input name="model" placeholder="服务商的具体模型 ID"></label><label>API Key 环境变量名<input name="key_env" value="RADAR_AI_KEY"></label>
+<label>AI 每天调用上限（UTC 重置）<input name="daily_calls" type="number" value="2" min="0" max="10"></label><label>单次输入字符上限<input name="input_chars" type="number" value="12000" min="1000" max="20000"></label>
+<label>单次输出 token 上限<input name="max_tokens" type="number" value="600" min="100" max="1500"></label>
+</div><p class="hint">密钥不写入网页或数据库。在 Mac 用启动终端的环境变量配置；后台运行用 docs 中的说明。兼容接口使用 /chat/completions；其他协议需适配。调用数限制不等于金额封顶，请同时设置服务商的账单限额。零花费模式请保持 AI 关闭，或自行安装免费的本地模型服务。</p><button>保存设置</button></form></section>
+<section class="panel"><details><summary>运行边界与接入状态</summary><p>Reddit：等待注册和官方批准；只实现有限页的只读适配器，不保证完整回复树。PoA：公开页面可访问，注册需用户完成；指定帖子适配器仅取单页。BeechTalk：等待真实姓名注册及内容使用范围确认，默认禁止自动读取正文。</p><p>用户、版块和标签的匹配、暂停/停止、导入和汇总已实现。PoA 用户/版块/标签的自动发现暂不支持，需要已验证 RSS 或规范化导入。没有可用 RSS 时会明确显示缺口。</p><p id="usage" class="hint"></p></details></section>
+</main><div id="toast" role="status"></div>
+<script>
+const csrf='__CSRF__';let snapshot;
+const $=id=>document.getElementById(id);const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(x){$('toast').textContent=x;$('toast').style.display='block';setTimeout(()=>$('toast').style.display='none',6000)}
+function show(id){['watch','create','messages','settings'].forEach(x=>$(x).classList.toggle('hidden',x!==id))}
+async function api(path,data){const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Radar-Token':csrf},body:JSON.stringify(data)});const j=await r.json();if(!r.ok)throw Error(j.error);return j}
+async function action(fn){try{await fn();await load();}catch(e){toast(e.message)}}
+async function load(){snapshot=await(await fetch('/api/state')).json();const s=snapshot;
+$('metrics').textContent=`${s.watches.filter(w=>w.state==='active').length} 个进行中 · ${s.pending} 条待汇总 · AI ${s.settings.ai.enabled?'已开启':'关闭 / 零调用'}`;
+$('watches').innerHTML=s.watches.length?s.watches.map(w=>`<article class="card"><div class="top"><h3>${esc(w.config.name)}</h3><span class="badge">${{active:'进行中',paused:'已暂停',stopped:'已停止'}[w.state]}</span></div><div class="meta">${esc(w.config.source)} / ${esc(w.config.kind)} / ${esc(w.config.target)} · 每 ${w.config.interval} 分钟</div><p>${esc(w.message)}</p><div class="hint">最近检查：${esc(w.checked||'尚未运行')} · 到期：${esc(w.config.expires||'手动停止')}</div><div class="actions">${w.state==='stopped'?'':`<button onclick="life('${w.id}','${w.state==='active'?'paused':'active'}')">${w.state==='active'?'暂停':'启用 / 恢复'}</button><button class="alt" onclick="check('${w.id}')">检查一次</button><button class="alt" onclick="importData('${w.id}')">导入 JSON</button><button class="danger" onclick="life('${w.id}','stopped')">停止追踪</button>`}</div></article>`).join(''):'<div class="panel"><h2>从你的第一个选择开始</h2><p>当前没有关注项，不会请求任何论坛。</p><button onclick="show(\'create\')">添加指定用户或讨论</button></div>';
+$('outbox').innerHTML=s.outbox.length?s.outbox.map(o=>`<article class="card"><div class="top"><strong>${esc(o.created)}</strong><span class="badge">${esc(o.state)}</span></div><pre>${esc(o.text)}</pre><div class="hint">${esc(o.detail)}</div>${o.state==='preview'?`<div class="actions"><button onclick="send('${o.id}')">通过本机 iMessage 发送</button></div>`:''}</article>`).join(''):'<div class="panel">暂无摘要。有新增匹配内容后生成。</div>';
+$('usage').textContent='调用计数：'+JSON.stringify(s.usage);
+const f=$('settingsForm');for(const [k,v]of Object.entries(s.settings)){if(k==='ai')continue;if(f.elements[k])f.elements[k].value=Array.isArray(v)?v.join(','):v}for(const[k,v]of Object.entries(s.settings.ai)){const e=f.elements[k];if(e){if(e.type==='checkbox')e.checked=v;else e.value=v}}
+}
+function life(id,state){action(async()=>{await api('lifecycle',{id,state});toast(state==='active'?'已启用；第一轮建立基线，不推送历史':'已更新状态并清除待通知项')})}
+function check(id){action(async()=>{await api('poll',{id});toast('检查结束，请查看来源状态')})}
+function digest(){action(async()=>{const r=await api('digest',{});show('messages');toast(r.id?'已生成摘要预览':'没有新增匹配内容')})}
+function send(id){action(async()=>{await api('send',{id});toast('请查看发送状态，并在手机核对实收')})}
+function importData(id){const file=document.createElement('input');file.type='file';file.accept='.json';file.onchange=()=>action(async()=>{const events=JSON.parse(await file.files[0].text());const r=await api('import',{id,events});toast(`已导入，新增待汇总 ${r.count} 条；首次导入只建立基线`)});file.click()}
+$('watchForm').onsubmit=e=>{e.preventDefault();action(async()=>{const f=e.target;const d=Object.fromEntries(new FormData(f));for(const k of['access_allowed','content_allowed','ai_allowed'])d[k]=f.elements[k].checked;await api('watch',d);f.reset();show('watch');toast('已创建，保持暂停；确认后可启用')})};
+$('settingsForm').onsubmit=e=>{e.preventDefault();action(async()=>{const d=Object.fromEntries(new FormData(e.target));const s=structuredClone(snapshot.settings);for(const k of['timezone','delivery','shortcut','max_items','daily_requests','retention_days'])s[k]=d[k];s.digest_times=d.digest_times.split(/[,，]/).map(x=>x.trim()).filter(Boolean);for(const k of['base_url','model','key_env','daily_calls','input_chars','max_tokens'])s.ai[k]=d[k];s.ai.enabled=e.target.elements.enabled.checked;await api('settings',s);toast('设置已保存')})};load().catch(e=>toast(e.message));
+</script></html>

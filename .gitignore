@@ -1,0 +1,15 @@
+data/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+*.sqlite*
+*.db
+*.log
+.DS_Store
+*.plist
+secrets*
+credentials*
+docs/reddit-api-request.md
+docs/STATUS.md
