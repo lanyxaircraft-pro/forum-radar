@@ -58,6 +58,7 @@ def init():
 
 def db():
     c = sqlite3.connect(DATA / 'radar.sqlite3', timeout=15)
+    c.execute('PRAGMA secure_delete=ON')
     c.row_factory = sqlite3.Row
     return c
 
@@ -110,19 +111,54 @@ class NoRedirect(ur.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise ValueError('来源发生重定向，请在浏览器确认最终 URL 后更新；未跟随重定向')
 
+def reddit_guard(update=None):
+    fingerprint=hashlib.sha256(os.environ.get('RADAR_REDDIT_TOKEN','').encode()).hexdigest()
+    with db() as c:
+        if update is not None:
+            c.execute("INSERT OR REPLACE INTO settings VALUES('reddit_network_guard',?)",(json.dumps(dict(update,fingerprint=fingerprint)),))
+            return
+        r=c.execute("SELECT value FROM settings WHERE key='reddit_network_guard'").fetchone()
+    if r:
+        g=json.loads(r[0])
+        if g.get('fingerprint')==fingerprint and g.get('until',0)>time.time():
+            raise ValueError('Reddit 已停止或退避：'+g.get('reason','等待允许时间'))
+
 def request(url, headers=None, payload=None, ai=False):
     validate_url(url, ai)
+    is_reddit=up.urlsplit(url).hostname == 'oauth.reddit.com'
+    if is_reddit:
+        contact=os.environ.get('RADAR_REDDIT_CONTACT','')
+        if not re.fullmatch(r'[A-Za-z0-9_-]{3,80}',contact):
+            raise ValueError('缺少用于规范 User-Agent 的 RADAR_REDDIT_CONTACT')
+        if not os.environ.get('RADAR_REDDIT_APPROVAL_REF','').strip():
+            raise ValueError('尚未配置实际获批记录，Reddit 访问关闭')
+        reddit_guard()
+        use('reddit_fetch',min(200,settings()['daily_requests']))
+        headers=dict(headers or {})
+        headers['User-Agent']=f'macos:forum-radar:v0.2 (by /u/{contact})'
     use('ai' if ai else 'fetch', settings()['ai']['daily_calls'] if ai else settings()['daily_requests'])
     h = {'User-Agent': 'ForumRadar/0.1 personal-selection-monitor'}
     h.update(headers or {})
     req = ur.Request(url, data=payload, headers=h)
     try:
         with ur.build_opener(NoRedirect).open(req, timeout=25) as r:
+            if is_reddit and r.headers.get('X-Ratelimit-Remaining') is not None:
+                try:
+                    if float(r.headers['X-Ratelimit-Remaining'])<=0:
+                        reddit_guard({'until':time.time()+max(60,float(r.headers.get('X-Ratelimit-Reset','900'))),'reason':'服务端额度耗尽'})
+                except ValueError:pass
             raw = r.read(2_000_001)
             if len(raw) > 2_000_000:
                 raise ValueError('响应过大，已停止')
             return raw
     except urllib.error.HTTPError as e:
+        if is_reddit:
+            if e.code in (401,403):
+                reddit_guard({'until':32503680000,'reason':f'HTTP {e.code}；需解决授权并更新令牌'})
+            elif e.code==429:
+                try:wait=max(60,float(e.headers.get('Retry-After','900')))
+                except (ValueError,AttributeError):wait=900
+                reddit_guard({'until':time.time()+wait,'reason':'HTTP 429，遵守退避'})
         raise ValueError('HTTP %s：已停止本次请求，请检查权限或额度' % e.code) from None
     except urllib.error.URLError:
         raise ValueError('连接失败：未重试或绕过访问限制') from None
@@ -163,6 +199,7 @@ def validate_watch(w):
             raise ValueError('RSS 必须属于选中的论坛')
     if w['source']=='reddit':
         w['transport']='reddit'
+        w['interval']=max(60,w['interval'])
         if w['kind']=='thread':
             m = re.search(r'/comments/([a-zA-Z0-9]+)',w['target'])
             w['target'] = m.group(1) if m else w['target']
@@ -236,7 +273,8 @@ def ingest(wid, events, coverage, baseline=False):
             digest=hashlib.sha256(json.dumps(e,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
             old=c.execute('SELECT hash FROM events WHERE watch=? AND eid=?',(wid,str(e['id']))).fetchone()
             if old and old[0]==digest:
-                c.execute('UPDATE events SET seen=? WHERE watch=? AND eid=?',(now(),wid,str(e['id'])))
+                if w['source']!='reddit':
+                    c.execute('UPDATE events SET seen=? WHERE watch=? AND eid=?',(now(),wid,str(e['id'])))
                 continue
             c.execute('INSERT OR REPLACE INTO events VALUES(?,?,?,?,?)',
                       (wid,str(e['id']),digest,json.dumps(e,ensure_ascii=False),now()))
@@ -250,22 +288,81 @@ def ingest(wid, events, coverage, baseline=False):
                    time.time()+w['interval']*60,wid))
     return n
 
+def reddit_headers():
+    if not os.environ.get('RADAR_REDDIT_APPROVAL_REF','').strip():
+        raise ValueError('尚未配置实际获批记录，Reddit 访问关闭')
+    token=os.environ.get('RADAR_REDDIT_TOKEN','')
+    if not token:
+        raise ValueError('缺少 RADAR_REDDIT_TOKEN，未发出请求')
+    return {'Authorization':'Bearer '+token}
+
+def forget_reddit_item(c,wid,eid):
+    # Purge derived local digests too, including already-submitted local copies.
+    ids=[r[0] for r in c.execute('SELECT id FROM pending WHERE watch=? AND json_extract(payload,\'$.id\')=?',(wid,eid))]
+    for pid in ids:
+        for r in c.execute('SELECT outbox FROM outbox_items WHERE pending=?',(pid,)).fetchall():
+            c.execute("UPDATE outbox SET text='已清除：来源内容删除、不可见或缓存到期',state='cancelled',detail='已清理本地派生数据' WHERE id=?",(r[0],))
+        c.execute('DELETE FROM outbox_items WHERE pending=?',(pid,))
+        c.execute('DELETE FROM pending WHERE id=?',(pid,))
+    c.execute('DELETE FROM events WHERE watch=? AND eid=?',(wid,eid))
+
+def purge_reddit_expired():
+    cutoff=(dt.datetime.now(dt.timezone.utc)-dt.timedelta(hours=24)).isoformat()
+    with db() as c:
+        rows=c.execute('SELECT e.watch,e.eid FROM events e JOIN watches w ON w.id=e.watch WHERE json_extract(w.config,\'$.source\')=\'reddit\' AND e.seen<?',(cutoff,)).fetchall()
+        for r in rows: forget_reddit_item(c,r['watch'],r['eid'])
+
+def refresh_reddit_deletions():
+    """Fail closed before digest/send; missing API items are treated as unavailable."""
+    purge_reddit_expired()
+    with db() as c:
+        rows=c.execute('SELECT e.*,w.config FROM events e JOIN watches w ON e.watch=w.id WHERE json_extract(w.config,\'$.source\')=\'reddit\'').fetchall()
+    if not rows:return set()
+    approved={r['watch'] for r in rows if json.loads(r['config']).get('access_allowed')}
+    rows=[r for r in rows if r['watch'] in approved]
+    if not rows:return set()
+    headers=reddit_headers(); current={}
+    ids=list(dict.fromkeys(r['eid'] for r in rows))
+    if any(not re.fullmatch(r't[13]_[a-z0-9]+',eid) for eid in ids):
+        raise ValueError('缓存含无效 Reddit ID，停止生成 Reddit 摘要')
+    for offset in range(0,len(ids),100):
+        data=json.loads(request('https://oauth.reddit.com/api/info?'+up.urlencode({'id':','.join(ids[offset:offset+100]),'raw_json':'1'}),headers))
+        for item in data.get('data',{}).get('children',[]):
+            d=item.get('data',{}); current[d.get('name','')]=d
+    with db() as c:
+        for r in rows:
+            d=current.get(r['eid'])
+            deleted=not d or d.get('body',d.get('selftext','')) in ('[deleted]','[removed]') or bool(d.get('removed_by_category'))
+            if deleted or d.get('author')=='[deleted]':
+                # Conservatively purge the full item rather than retain identifying fields.
+                forget_reddit_item(c,r['watch'],r['eid'])
+                continue
+            # Edited source text invalidates old copies, even if the watch no longer matches.
+            old=json.loads(r['payload'])
+            if old.get('body','') and old['body']!=d.get('body',d.get('selftext','')):
+                forget_reddit_item(c,r['watch'],r['eid'])
+    return approved
+
 def reddit(w):
     if not w.get('access_allowed'):
         raise ValueError('Reddit API 尚未确认获批，未发出请求')
-    token=os.environ.get('RADAR_REDDIT_TOKEN','')
-    if not token:
-        raise ValueError('缺少 RADAR_REDDIT_TOKEN；令牌过期后需更新，不会转为网页抓取')
+    if w['kind']!='thread':
+        raise ValueError('Reddit 复核试点仅支持指定帖子；用户历史、版块流和标签发现保持关闭')
+    if w.get('board','').casefold() not in ('flying','aviationmaintenance','avionics'):
+        raise ValueError('复核试点必须明确填写申请中的 subreddit')
+    with db() as c:
+        n=c.execute("SELECT count(*) FROM watches WHERE state='active' AND json_extract(config,'$.source')='reddit'").fetchone()[0]
+    if n>5:raise ValueError('Reddit 复核试点最多同时启用 5 个指定帖子')
+    headers=reddit_headers()
     q={'limit':'100','raw_json':'1'}
     if w['kind']=='thread':
-        path='/comments/'+w['target']; q['sort']='new'
+        path='/r/'+up.quote(w['board'],safe='')+'/comments/'+w['target']; q['sort']='new'
     elif w['kind']=='user':
         path='/user/'+w['target']+'/overview'; q['sort']='new'
     else:
         board=w['target'] if w['kind']=='board' else w['board']
         path='/r/'+up.quote(board,safe='')+'/new'
-    result=json.loads(request('https://oauth.reddit.com'+path+'?'+up.urlencode(q),
-                       {'Authorization':'Bearer '+token}))
+    result=json.loads(request('https://oauth.reddit.com'+path+'?'+up.urlencode(q),headers))
     out=[]
     def walk(node, thread='',title='',tags=None):
         if isinstance(node,list):
@@ -381,7 +478,7 @@ def poll(wid):
 def ai_summary(items):
     cfg=settings()['ai']
     if not cfg['enabled']: return ''
-    allowed=[i for i in items if i['config'].get('ai_allowed') and i['config'].get('content_allowed')]
+    allowed=[i for i in items if i['config'].get('source')!='reddit' and i['config'].get('ai_allowed') and i['config'].get('content_allowed')]
     if not allowed: return ''
     if not cfg['base_url'] or not cfg['model']: raise ValueError('AI 地址或模型未配置')
     texts=[{'watch':i['config']['name'],'title':i['event']['title'],'body':i['event'].get('body',''),
@@ -398,12 +495,17 @@ def ai_summary(items):
     return str(result['choices'][0]['message']['content'])[:4000]
 
 def prepare_digest():
+    try:
+        verified=refresh_reddit_deletions()
+    except Exception:
+        verified=set()  # Other sources continue; unverifiable Reddit items never leave the app.
     with db() as c:
         expire(c)
         rows=c.execute("SELECT p.*,w.config FROM pending p JOIN watches w ON p.watch=w.id WHERE p.state='pending' AND w.state='active' ORDER BY p.id").fetchall()
         day=dt.datetime.now(dt.timezone.utc).date().isoformat(); counts={}; selected=[]
         for r in rows:
             w=json.loads(r['config'])
+            if w['source']=='reddit' and r['watch'] not in verified:continue
             if r['watch'] not in counts:
                 used=c.execute('SELECT n FROM usage WHERE day=? AND kind=?',(day,'watch:'+r['watch'])).fetchone()
                 counts[r['watch']]=used[0] if used else 0
@@ -420,6 +522,9 @@ def prepare_digest():
         groups.setdefault(key,[]).append(e)
     for (name,thread),events in groups.items():
         e=events[0]; people=', '.join(dict.fromkeys(x['author'] for x in events if x['author']))
+        if e.get('source')=='reddit':
+            lines.extend(['',f'{name}｜所选 Reddit 讨论有更新',f'本批 {len(events)} 条新增/修改',e['url']])
+            continue
         lines.extend(['',f'{name}｜{e["title"][:100]}',f'本批 {len(events)} 条新增/修改；作者：{people[:100] or "来源未提供"}'])
         for x in events[:2]:
             if x.get('body'): lines.append('片段：'+x['body'][:160])
@@ -431,7 +536,8 @@ def prepare_digest():
         lines.append('\nAI 未完成，已使用免费片段汇总。')
     oid=secrets.token_hex(8); text='\n'.join(lines)
     with db() as c:
-        c.execute('INSERT INTO outbox VALUES(?,?,?,?,?)',(oid,text,'preview',now(),''))
+        marker='reddit_link_only_v2' if any(i['config']['source']=='reddit' for i in selected) else ''
+        c.execute('INSERT INTO outbox VALUES(?,?,?,?,?)',(oid,text,'preview',now(),marker))
         for i in selected:
             c.execute("UPDATE pending SET state='queued' WHERE id=?",(i['id'],))
             c.execute('INSERT INTO outbox_items VALUES(?,?)',(oid,i['id']))
@@ -440,6 +546,15 @@ def prepare_digest():
     return oid
 
 def send(oid):
+    with db() as c:
+        related=c.execute('SELECT DISTINCT w.config FROM outbox_items oi JOIN pending p ON p.id=oi.pending JOIN watches w ON w.id=p.watch WHERE oi.outbox=?',(oid,)).fetchall()
+    if any(json.loads(r[0])['source']=='reddit' for r in related):
+        refresh_reddit_deletions()  # Failure aborts send; a purged item cancels this outbox.
+        with db() as c:
+            old=c.execute('SELECT detail FROM outbox WHERE id=?',(oid,)).fetchone()
+            if old and old[0]!='reddit_link_only_v2':
+                c.execute("UPDATE outbox SET text='旧版本 Reddit 摘要已清除',state='cancelled' WHERE id=?",(oid,))
+        if old and old[0]!='reddit_link_only_v2':raise ValueError('旧版 Reddit 摘要已取消，不发送正文')
     with db() as c:
         expire(c)
         row=c.execute('SELECT * FROM outbox WHERE id=?',(oid,)).fetchone()
@@ -462,6 +577,7 @@ def send(oid):
 
 def tick():
     with LOCK:
+        purge_reddit_expired()
         with db() as c:
             expire(c)
             rows=c.execute("SELECT id FROM watches WHERE state='active' AND due<=?",(time.time(),)).fetchall()
@@ -486,6 +602,7 @@ def tick():
             c.execute('DELETE FROM outbox_items WHERE outbox NOT IN (SELECT id FROM outbox)')
 
 def state():
+    purge_reddit_expired()
     with db() as c:
         expire(c)
         watches=[dict(r) for r in c.execute('SELECT * FROM watches ORDER BY rowid DESC')]

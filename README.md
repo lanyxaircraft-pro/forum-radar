@@ -4,13 +4,21 @@ A private, single-user, local-first forum reading prototype. It follows only exp
 
 Reddit integration uses read-only OAuth endpoints and stays inactive until access approval and credentials are supplied. No Reddit data has been collected by this project. The intended initial application scope is r/flying, r/aviationmaintenance and r/avionics, subject to approval. External AI processing is disabled by default; no data is used for model training.
 
-This is not a production deployment: complete pagination, OAuth refresh, deletion synchronization and live Mac/iMessage verification remain outstanding. Required safeguards must be completed before live collection. The Python standard-library implementation has no paid dependencies; optional third-party AI is independently billed.
+This is not a production deployment: complete pagination, OAuth refresh, live deletion-sync validation and live Mac/iMessage verification remain outstanding. Required safeguards must be completed before live collection. The Python standard-library implementation has no paid dependencies; optional third-party AI is independently billed.
 
 Repository contents exclude registration records, application correspondence, credentials, runtime databases and real forum content. Test events are fictional. See the implementation in `radar.py` and the setup and limitations below.
 
+## Reddit v0.2 review evidence
+
+See [the implementation evidence](docs/REVIEW.md) and [data practices](docs/PRIVACY.md). The reviewed pilot is narrower than the generic multi-forum UI: at most five explicitly selected Reddit threads, hourly polling, at most 200 Reddit requests/day, 24-hour cache TTL, deletion revalidation before notification, link/count-only notifications and no Reddit AI. Offline tests validate controls; no live access or approval is claimed.
+
+Before any approved deployment, configure a genuine approval reference in `RADAR_REDDIT_APPROVAL_REF`, your developer contact in `RADAR_REDDIT_CONTACT`, and the official OAuth token in `RADAR_REDDIT_TOKEN`. A user-entered local reference is not evidence of Reddit approval. API rejection stops access; no alternate data source is used.
+
+The long-term access path must be clarified with Reddit given the announced 2027 migration. The current project is not a Devvit app; no Devvit registration or external-endpoint permission is claimed.
+
 ---
 
-# 论坛雷达 · 本地验证版 v0.1
+# 论坛雷达 · 复核验证版 v0.2
 
 为 Mac Studio 准备的轻量个人工具。Python 标准库实现，不需要 pip/npm、云主机或订阅。
 
@@ -26,7 +34,7 @@ Repository contents exclude registration records, application correspondence, cr
 python3 radar.py
 ```
 
-4. 用浏览器打开 **http://127.0.0.1:8765**。先启动程序，再打开网页。也可双击 `Start.command`，若浏览器先于服务启动，刷新一次即可。
+4. 用浏览器打开 [本机界面](http://127.0.0.1:8765)。先启动程序，再打开网页。也可双击 `Start.command`，若浏览器先于服务启动，刷新一次即可。
 
 程序只在本机开放，不提供公网访问。默认没有关注项、没有论坛请求、AI 关闭、通知只做预览。
 
@@ -54,13 +62,13 @@ python3 radar.py
 
 **Reddit**：请注册自己的账号并按官方要求申请 API 访问批准。获批后才能勾选批准项。适配器读取环境变量 `RADAR_REDDIT_TOKEN`，必须是官方 OAuth access token，不是账号密码。当前不自动刷新，过期会停止并报告。不提供转成网页抓取的后备路径。
 
-帖子选择填帖子 URL 或 ID；用户填用户名；版块填 subreddit；标签填 flair，并填写版块。用户在特定版块的内容通过 user overview 后本地过滤；未匹配的其他版块内容不会入库。版块/标签模式当前仅看新帖，不自动收集所有新回复。指定帖子可解析返回的回复树，但未展开 more。始终标记部分覆盖。
+Reddit 复核试点只支持最多 5 个指定帖子，必须填写申请范围内的 subreddit（flying、aviationmaintenance 或 avionics）。可在选定帖子内按作者或关键词过滤；用户历史、版块流和标签发现的在线读取保持关闭。指定帖子只处理 API 返回的回复树，未展开 more，始终标记部分覆盖。
 
 **PoA**：具体帖子可使用实验性单页适配器，填写完整帖子 URL。需先确认允许该访问方式；不登录、不处理验证码、不绕过限制。作者/版块/标签的自动发现目前需使用已经验证的站内 RSS，或手动导入。单页模式不保证获得所有新增回复。
 
 **BeechTalk**：默认关闭自动正文获取。其条款限制会员内容在社区外复制，需先确认本工具用途的允许范围。注册使用真实姓名且每人一个账号。未确认正文处理时可导入链接级事件，但不会保存正文或原帖标题。不要仅因为拥有账号就勾选内容处理已获准。
 
-正文处理和 AI 外部处理权限是分开的配置项。正式采集前还应补齐来源要求的删除同步和分页处理。
+正文处理和 AI 外部处理权限是分开的配置项。Reddit 已实现缓存到期和通知前删除重查，但未完成真实 API 验收；正式采集前仍需满足全部审核条件。
 
 ## iMessage
 
@@ -92,7 +100,7 @@ export RADAR_AI_KEY
 python3 radar.py
 ```
 
-程序同时要求：全局 AI 开启、该关注允许正文处理、该关注允许 AI 处理。达到每日调用上限或 API 错误时退回免费片段汇总。Base URL 必须是可信服务商，密钥只发给配置的 API，不自动跟随重定向。不同厂商的专有协议暂不支持。
+其他来源的 AI 要求：全局 AI 开启、该关注允许正文处理、该关注允许 AI 处理。Reddit 在代码层强制排除所有 AI，开关不能覆盖此限制。达到每日调用上限或 API 错误时退回免费片段汇总。Base URL 必须是可信服务商，密钥只发给配置的 API，不自动跟随重定向。不同厂商的专有协议暂不支持。
 
 限制调用次数不等于金额上限。想保持零费用，请保持 AI 关闭，或自行部署无付费接口的本地模型。第三方模式请同时在服务商账户设置账单限额。
 

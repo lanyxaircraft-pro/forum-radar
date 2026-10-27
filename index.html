@@ -6,7 +6,7 @@
 </style>
 <header><small>FORUM RADAR / LOCAL FIRST</small><h1>只蹲守，你选中的讨论。</h1><div>指定用户 · 指定话题 · 指定版块 · 指定标签</div></header>
 <main><div class="top"><div><strong id="metrics">读取本地状态…</strong><div class="hint">默认无付费服务，AI 关闭。没有关注项时不访问论坛。</div></div><button onclick="digest()">生成本次汇总</button></div>
-<div class="notice">v0.1 本地验证版：账号与线上权限尚未接通。支持手动导入验证完整流程；自动适配器均标记覆盖缺口。iMessage 需要在 Mac 配置快捷指令后实测。</div>
+<div class="notice">v0.2 复核验证版：账号与线上权限尚未接通。支持手动导入验证完整流程；自动适配器均标记覆盖缺口。iMessage 需要在 Mac 配置快捷指令后实测。</div>
 <nav><button onclick="show('watch')">我的蹲守</button><button class="alt" onclick="show('create')">＋ 添加关注</button><button class="alt" onclick="show('messages')">摘要与通知</button><button class="alt" onclick="show('settings')">设置</button></nav>
 <section id="watch"><div id="watches"></div></section>
 <section id="create" class="hidden panel"><h2>从一个明确的选择开始</h2>
@@ -28,21 +28,21 @@
 <div class="hint">第一轮只建立基线；暂停后恢复也重新建立基线，避免补发堆积。停止会清除待通知项，需新建才能重开。</div>
 <label class="wide"><input type="checkbox" name="access_allowed">我已确认所选访问方式获准；Reddit 已收到 API 批准</label>
 <label class="wide"><input type="checkbox" name="content_allowed">我已确认可在本地保存和处理这些正文；否则只保留链接级事件</label>
-<label class="wide"><input type="checkbox" name="ai_allowed">允许将此关注的正文交给设置中指定的 AI 服务（仍需开启全局 AI）</label>
-</div><p class="hint">所有条件之间为“且”。不会自动扩展到其他版块、其他用户或相关话题。Reddit 自动使用官方 API；令牌在 Mac 环境变量中配置。</p><button>创建并保持暂停</button></form></section>
+<label class="wide"><input type="checkbox" name="ai_allowed">允许其他来源使用所选 AI（Reddit 始终排除，开关不能覆盖）</label>
+</div><p class="hint">所有条件之间为“且”。不会自动扩展到其他版块、其他用户或相关话题。Reddit 试点仅支持最多 5 个指定帖子（须填写版块），用户历史/版块流/标签发现暂不读取。</p><button>创建并保持暂停</button></form></section>
 <section id="messages" class="hidden"><div class="panel"><h2>摘要与通知</h2><p class="hint">预览不会发消息。发送仅调用你在 Mac 上创建的固定收件人快捷指令；发送结果不明确时不会自动重试。</p></div><div id="outbox"></div></section>
 <section id="settings" class="hidden panel"><h2>本地运行设置</h2><form id="settingsForm"><div class="grid">
 <label>时区<input name="timezone" value="Asia/Seoul" required></label><label>定时摘要（逗号分隔）<input name="digest_times" value="09:00,19:00" required></label>
 <label>通知方式<select name="delivery"><option value="preview">只生成本地预览（默认）</option><option value="imessage">iMessage（Mac 实测后再开启）</option></select></label><label>固定收件人快捷指令名称<input name="shortcut" value="ForumRadarSend"></label>
 <label>每批最多条目<input name="max_items" type="number" min="1" max="20" value="8"></label><label>每天论坛请求上限（UTC 重置）<input name="daily_requests" type="number" min="1" max="1000" value="200"></label>
-<label>内容保留天数<input name="retention_days" type="number" min="1" max="30" value="7"></label>
+<label>其他来源保留天数（Reddit 固定 24 小时）<input name="retention_days" type="number" min="1" max="30" value="7"></label>
 <label><input name="enabled" type="checkbox">启用可选 AI 摘要</label>
 <label class="wide">OpenAI 兼容 API Base URL<input name="base_url" placeholder="https://你的服务商/v1 或 http://127.0.0.1:11434/v1"></label>
 <label>模型名称<input name="model" placeholder="服务商的具体模型 ID"></label><label>API Key 环境变量名<input name="key_env" value="RADAR_AI_KEY"></label>
 <label>AI 每天调用上限（UTC 重置）<input name="daily_calls" type="number" value="2" min="0" max="10"></label><label>单次输入字符上限<input name="input_chars" type="number" value="12000" min="1000" max="20000"></label>
 <label>单次输出 token 上限<input name="max_tokens" type="number" value="600" min="100" max="1500"></label>
 </div><p class="hint">密钥不写入网页或数据库。在 Mac 用启动终端的环境变量配置；后台运行用 docs 中的说明。兼容接口使用 /chat/completions；其他协议需适配。调用数限制不等于金额封顶，请同时设置服务商的账单限额。零花费模式请保持 AI 关闭，或自行安装免费的本地模型服务。</p><button>保存设置</button></form></section>
-<section class="panel"><details><summary>运行边界与接入状态</summary><p>Reddit：等待注册和官方批准；只实现有限页的只读适配器，不保证完整回复树。PoA：公开页面可访问，注册需用户完成；指定帖子适配器仅取单页。BeechTalk：等待真实姓名注册及内容使用范围确认，默认禁止自动读取正文。</p><p>用户、版块和标签的匹配、暂停/停止、导入和汇总已实现。PoA 用户/版块/标签的自动发现暂不支持，需要已验证 RSS 或规范化导入。没有可用 RSS 时会明确显示缺口。</p><p id="usage" class="hint"></p></details></section>
+<section class="panel"><details><summary>运行边界与接入状态</summary><p>Reddit：等待官方批准；仅支持最多 5 个指定帖子；缓存 24 小时、发送前重查删除、仅发链接/数量、禁止 AI；不保证完整回复树。PoA：公开页面可访问，注册需用户完成；指定帖子适配器仅取单页。BeechTalk：等待真实姓名注册及内容使用范围确认，默认禁止自动读取正文。</p><p>用户、版块和标签的匹配、暂停/停止、导入和汇总已实现。PoA 用户/版块/标签的自动发现暂不支持，需要已验证 RSS 或规范化导入。没有可用 RSS 时会明确显示缺口。</p><p id="usage" class="hint"></p></details></section>
 </main><div id="toast" role="status"></div>
 <script>
 const csrf='__CSRF__';let snapshot;
